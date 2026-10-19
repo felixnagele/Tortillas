@@ -119,9 +119,14 @@ def main():
 
     parser.add_argument(
         "--endurance-report",
-        action="store_true",
-        help="Regenerate endurance_report.md from the endurance session data "
-        "of the last run (rounds.jsonl) and exit",
+        type=Path,
+        nargs="?",
+        const=None,  # flag without a directory = report on the last run
+        default=False,  # flag not given at all
+        metavar="SESSION_DIR",
+        help="Regenerate the endurance report from rounds.jsonl and exit. "
+        "Without SESSION_DIR the last run is used; otherwise read the given "
+        "endurance session directory (e.g. a rotated endurance-* folder)",
     )
 
     # Internal flags used by the endurance supervisor to spawn a worker.
@@ -134,10 +139,10 @@ def main():
 
     args = parser.parse_args()
 
-    if args.endurance_report:
+    if args.endurance_report is not False:
         from .endurance import regenerate_report
 
-        ok = regenerate_report()
+        ok = regenerate_report(args.endurance_report)
         logging.shutdown()
         sys.exit(not ok)
 

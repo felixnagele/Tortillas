@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import fcntl
 import json
 import math
 import os
@@ -27,6 +28,7 @@ from .constants import (
     ENDURANCE_DIR,
     ENDURANCE_FAILURES_DIR,
     ENDURANCE_JSONL,
+    ENDURANCE_LOCK,
     ENDURANCE_REPORT,
     QEMU_VMSTATE_TAG,
 )
@@ -39,10 +41,11 @@ from .utils import get_logger
 
 FAILED = (TestStatus.FAILED, TestStatus.TIMEOUT, TestStatus.PANIC)
 MAX_FAILURE_LOGS = 200
-MAX_HANG_LOGS = 50
+MAX_WORKER_LOGS = 50
 
 _stop = False  # set by Ctrl-C handler
 _current_process: subprocess.Popen | None = None  # worker of the running round
+_lock_file: TextIO | None = None  # held open for the lifetime of the supervisor
 
 
 def _on_signal(signum: int, frame: object) -> None:  # noqa: ARG001
@@ -54,9 +57,7 @@ def _on_signal(signum: int, frame: object) -> None:  # noqa: ARG001
             _stop_worker(_current_process)
         os._exit(130)
     _stop = True
-    get_logger("global").warning(
-        "Stopping after this round (press Ctrl-C again to force quit)"
-    )
+    get_logger("global").warning("Stopping now (press Ctrl-C again to force quit)")
 
 
 def _now() -> str:
@@ -73,6 +74,23 @@ def _append_jsonl(record: dict) -> None:
         jsonl_file.write(json.dumps(record) + "\n")
         jsonl_file.flush()
         os.fsync(jsonl_file.fileno())
+
+
+def _acquire_lock() -> bool:
+    """Prevent two supervisors from writing into the same session directory."""
+    global _lock_file
+
+    lock_file = ENDURANCE_LOCK.open("w")
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock_file.close()
+        return False
+
+    lock_file.write(str(os.getpid()))
+    lock_file.flush()
+    _lock_file = lock_file
+    return True
 
 
 def _load_records(path: Path) -> list[dict]:
@@ -235,8 +253,9 @@ def _run_round(round_id: int, args: argparse.Namespace, max_secs: int) -> dict:
         failures, partial = data["fail"], data["partial"]
     result_path.unlink(missing_ok=True)
 
-    if killed:
-        _prune(worker_log_path.parent.glob("round-*.log"), keep=MAX_HANG_LOGS)
+    if partial:
+        # Keep logs of aborted rounds (hangs and crashes) for diagnosis.
+        _prune(worker_log_path.parent.glob("round-*.log"), keep=MAX_WORKER_LOGS)
     else:
         worker_log_path.unlink(missing_ok=True)
 
@@ -297,6 +316,10 @@ def run_endurance(
 ) -> bool:
     global _stop
     log = get_logger("global")
+
+    if not _acquire_lock():
+        log.error(f"Another endurance run is already active ({ENDURANCE_LOCK})")
+        return False
 
     _prepare_dir()
     _stop = False
@@ -375,7 +398,8 @@ def _archive_failure_log(test_run: TestRun, round_id: int) -> None:
     shutil.copyfile(log_file, dest_dir / f"round-{round_id:06d}.log")
 
 
-def build_report(records: list[dict]) -> str:
+def build_report(records: list[dict], failures_dir: Path | None = None) -> str:
+    failures_dir = failures_dir or ENDURANCE_FAILURES_DIR
     meta = next((r for r in records if r["type"] == "meta"), {})
     rounds = [r for r in records if r["type"] == "round"]
     completed = [r for r in rounds if not r["partial"]]
@@ -404,7 +428,7 @@ def build_report(records: list[dict]) -> str:
         f"- Session started: {meta.get('start', '?')}",
         f"- Rounds: {len(completed)} completed, {len(rounds) - len(completed)} aborted",
         f"- Tests: {len(tests)} selected",
-        f"- Failure logs: {ENDURANCE_FAILURES_DIR}",
+        f"- Failure logs: {failures_dir}",
         "",
         "## Flakiness (worst first)",
         "",
@@ -455,22 +479,30 @@ def build_report(records: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _write_report() -> None:
-    report = build_report(_load_records(ENDURANCE_JSONL))
+def _write_report(jsonl: Path | None = None, report: Path | None = None) -> None:
+    jsonl = jsonl or ENDURANCE_JSONL
+    report = report or ENDURANCE_REPORT
 
-    tmp_path = ENDURANCE_REPORT.with_suffix(".md.tmp")
-    tmp_path.write_text(report)
-    os.replace(tmp_path, ENDURANCE_REPORT)
+    tmp_path = report.with_suffix(".md.tmp")
+    tmp_path.write_text(build_report(_load_records(jsonl), jsonl.parent / "failures"))
+    os.replace(tmp_path, report)
 
 
-def regenerate_report() -> bool:
-    """Rebuild endurance_report.md from an existing rounds.jsonl."""
+def regenerate_report(session_dir: Path | None = None) -> bool:
+    """Rebuild the report from the current session or a rotated session directory."""
     log = get_logger("global")
 
-    if not ENDURANCE_JSONL.exists():
-        log.error(f"No endurance session found at {ENDURANCE_JSONL}")
+    if session_dir is None:
+        jsonl = ENDURANCE_JSONL
+        report = ENDURANCE_REPORT
+    else:
+        jsonl = session_dir / "rounds.jsonl"
+        report = session_dir / "endurance_report.md"
+
+    if not jsonl.exists():
+        log.error(f"No endurance session found at {jsonl}")
         return False
 
-    _write_report()
-    log.info(f"Report written to {ENDURANCE_REPORT}")
+    _write_report(jsonl, report)
+    log.info(f"Report written to {report}")
     return True

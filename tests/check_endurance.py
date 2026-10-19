@@ -196,6 +196,29 @@ def test_completed_round_reads_result_from_file(
     assert record["partial"] is False
     assert record["fail"] == [{"test": "foo", "status": "FAILED"}]
     assert record["round"] == 2
+    assert not (tmp_path / "workers" / "round-000002.log").exists()
+
+
+def test_crashed_worker_keeps_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _round_env(tmp_path, monkeypatch)
+
+    def fake_command(_args: Any, _round_id: int, _result_path: Path) -> list[str]:
+        # Exit without writing a result, like a worker that crashed.
+        return ["true"]
+
+    monkeypatch.setattr(endurance, "_worker_command", fake_command)
+
+    record = endurance._run_round(3, SimpleNamespace(), max_secs=10)
+
+    assert record["partial"] is True
+    assert (tmp_path / "workers" / "round-000003.log").exists()
+
+
+def test_lock_prevents_second_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(endurance, "ENDURANCE_LOCK", tmp_path / "endurance.lock")
+
+    assert endurance._acquire_lock() is True
+    assert endurance._acquire_lock() is False
 
 
 def test_prepare_dir_handles_backup_name_collision(
@@ -262,6 +285,21 @@ def test_regenerate_report_writes_report(
 
     assert regenerate_report() is True
     assert "# Tortillas endurance report" in report_path.read_text()
+
+
+def test_regenerate_report_from_rotated_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    session = tmp_path / "endurance-20261016-220000"
+    session.mkdir()
+    (session / "rounds.jsonl").write_text(
+        json.dumps(_meta(["a"])) + "\n" + json.dumps(_round(1, [])) + "\n"
+    )
+    monkeypatch.setattr(endurance, "ENDURANCE_REPORT", tmp_path / "current.md")
+
+    assert regenerate_report(session) is True
+    assert (session / "endurance_report.md").exists()
+    assert not (tmp_path / "current.md").exists()
 
 
 def test_worker_command_contains_selection_args():

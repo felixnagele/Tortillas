@@ -230,7 +230,7 @@ tortillas --endurance --rounds 500       # Run until 500 rounds finish
 tortillas --endurance --glob pthread*    # Run all tests, that match 'userspace/tests/pthread*.c'
 ```
 
-Each round runs in a fresh worker process, and a watchdog kills hung rounds without stalling the run. Press `Ctrl-C` once to stop and write the report, twice to force quit. Only failing runs are logged; the report is written to `endurance_report.md`, and `rounds.jsonl` holds the raw data (`tortillas --endurance-report` regenerates the report from it).
+Each round runs in a fresh worker process, and a watchdog kills hung rounds without stalling the run. Press `Ctrl-C` once to stop and write the report, twice to force quit. Only failing runs and aborted (hung or crashed) rounds are logged; the report is written to `endurance_report.md`, and `rounds.jsonl` holds the raw data. `tortillas --endurance-report` regenerates it, and passing a rotated `endurance-*` session directory reports on an older run.
 
 ## Tortillas config
 
