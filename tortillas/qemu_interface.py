@@ -12,6 +12,7 @@ import os
 import time
 import shlex
 import subprocess
+import contextlib
 from logging import Logger
 from enum import Enum
 
@@ -44,8 +45,8 @@ class QemuInterface:
         self.interrupts = interrupts
 
         self.interrupt_watchdog: InterruptWatchdog
-        self.process: subprocess.Popen
-        self.input: TextIO
+        self.process: subprocess.Popen | None = None
+        self.input: TextIO | None = None
 
     @property
     def fifos(self) -> Path:
@@ -91,18 +92,33 @@ class QemuInterface:
         traceback: TracebackType | None,
     ):
         if self.interrupts:
-            self.interrupt_watchdog.stop()
+            try:
+                self.interrupt_watchdog.stop()
+            except (OSError, ValueError) as exc:
+                self.logger.debug(f"Failed to stop interrupt watchdog: {exc}")
 
         if self.is_alive():
             self.logger.debug("Quitting")
-            self.monitor_command("quit\n")
+            try:
+                self.monitor_command("quit\n")
+            except (OSError, ValueError) as exc:
+                self.logger.debug(f"Failed to send quit: {exc}")
 
-        self.input.close()
+        if self.input:
+            self.input.close()
 
-        self.process.wait()
+        # Don't wait forever: a hung qemu would stall the whole run.
+        if self.process:
+            try:
+                self.process.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                self.logger.error("Qemu did not exit in time, killing it")
+                self.process.kill()
+                self.process.wait()
 
-        os.remove(f"{self.fifos}.in")
-        os.remove(f"{self.fifos}.out")
+        for fifo in (self.fifos.with_suffix(".in"), self.fifos.with_suffix(".out")):
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(fifo)
 
         if exc_type and exc_value:
             self.logger.error(
@@ -140,14 +156,14 @@ class QemuInterface:
 
         return subprocess.Popen(
             shlex.split(cmd),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
         )
 
     def is_alive(self) -> bool:
         """Return, whether the qemu process is running."""
-        if not self.input or self.process.poll():
+        if self.process is None or self.process.poll() is not None:
             self.logger.error("Qemu_process not alive any more!")
             return False
         return True
@@ -157,6 +173,7 @@ class QemuInterface:
         Send a qemu monitor command.
         See https://www.qemu.org/docs/master/system/monitor.html
         """
+        assert self.input is not None
         written_n = self.input.write(command)
         self.input.flush()
         # I ran into some problems without this sleep...

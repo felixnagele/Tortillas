@@ -3,7 +3,6 @@
 from __future__ import annotations
 from typing import Any, Callable
 
-import sys
 import time
 import threading
 import subprocess
@@ -17,6 +16,10 @@ from .log_analyzer import TestResult, LogAnalyzer, TestStatus
 from .log_parser import LogParser
 from .progress_bar import ProgressBar
 from .qemu_interface import QemuInterface, InterruptWatchdog
+
+
+class SnapshotError(RuntimeError):
+    """Raised, if creating the qemu snapshot fails."""
 
 
 class TestRun:
@@ -186,7 +189,8 @@ class TestRunner:
         # Testing finished
 
         self.success = not any(
-            test_run.result.status in (TestStatus.FAILED, TestStatus.PANIC, TestStatus.TIMEOUT)
+            test_run.result.status
+            in (TestStatus.FAILED, TestStatus.PANIC, TestStatus.TIMEOUT)
             for test_run in self.test_runs
         )
 
@@ -210,14 +214,14 @@ class TestRunner:
             for cell, width in zip(cols, widths):
                 padding = width - len(cell) - 2
                 if padding < 0:
-                    raise ValueError(f'"{cell}" is to long ' "for the table width")
-                res += f" {cell}{' '*padding}|"
+                    raise ValueError(f'"{cell}" is to long for the table width')
+                res += f" {cell}{' ' * padding}|"
             return res + "\n"
 
         def markdown_table_delim(widths: list[int] = [40, 20]):
             res = "|"
             for width in widths:
-                res += f" {'-'*(width-3)} |"
+                res += f" {'-' * (width - 3)} |"
             return res + "\n"
 
         self.test_runs.sort(key=repr)
@@ -293,7 +297,7 @@ def _create_snapshot(architecture: str, label: str, config: TortillasConfig):
         tmp_dir=tmp_dir, qcow2_path=snapshot_qcow2_path, arch=architecture, logger=log
     ) as qemu:
         if not qemu.is_alive():
-            sys.exit(1)
+            raise SnapshotError("Qemu process died during snapshot creation")
 
         log.debug("Waiting for bootup...")
 
@@ -308,7 +312,6 @@ def _create_snapshot(architecture: str, label: str, config: TortillasConfig):
             InterruptWatchdog.Status.TIMEOUT,
             InterruptWatchdog.Status.STOPPED,
         ):
-            log.info("Boot attempt failed, dumping logfile!")
             bootup_error = True
 
         else:
@@ -317,8 +320,9 @@ def _create_snapshot(architecture: str, label: str, config: TortillasConfig):
             qemu.monitor_command(f"savevm {label}\n")
 
     if bootup_error:
+        log.info("Boot attempt failed, dumping logfile!")
         log.info((tmp_dir / "out.log").read_text())
-        sys.exit(1)
+        raise SnapshotError("Bootup timed out while creating the snapshot")
 
     subprocess.run(
         ["cp", snapshot_qcow2_path, f"{TEST_RUN_DIR}/SWEB-snapshot.qcow2"], check=True

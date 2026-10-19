@@ -16,6 +16,7 @@ It takes your test cases and runs them in individual Qemu instances, while loggi
 
 - Parallel test execution
 - Test summary with errors from all test runs
+- Endurance mode to run tests repeatedly (e.g. overnight) to spot rare races
 - Configure how debug logs get parsed and interpreted
 - Fancy progress bar
 - Uses qemu snapshots to avoid booting multiple times
@@ -218,6 +219,18 @@ tortillas --tag pthread         # Run all tests tagged with 'pthread'
 tortillas --category malloc,brk # Run all tests in the 'malloc' and 'brk' categories
 tortillas --glob test*          # Run all tests, that match 'userspace/tests/test*.c'
 ```
+
+###### Endurance mode
+
+Some bugs are race conditions that only show up after hundreds of runs. Endurance mode repeats the selected tests until you stop it.
+
+```
+tortillas --endurance                    # Run until you press Ctrl-C
+tortillas --endurance --rounds 500       # Run until 500 rounds finish
+tortillas --endurance --glob pthread*    # Run all tests, that match 'userspace/tests/pthread*.c'
+```
+
+Each round runs in a fresh worker process, and a watchdog kills hung rounds without stalling the run. Press `Ctrl-C` once to stop and write the report, twice to force quit. Only failing runs are logged; the report is written to `endurance_report.md`, and `rounds.jsonl` holds the raw data (`tortillas --endurance-report` regenerates the report from it).
 
 ## Tortillas config
 
