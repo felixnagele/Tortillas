@@ -12,6 +12,12 @@ This program might be useful for students doing the [operating systems course](h
 Tortillas is here to help with testing your sweb code. \
 It takes your test cases and runs them in individual Qemu instances, while logging the output and monitoring for errors.
 
+Install command for my Tortillas (production branch) version (requires [`uv`](https://docs.astral.sh/uv/)):
+
+```bash
+uv tool install "tortillas[fancy] @ git+https://github.com/felixnagele/Tortillas.git@production"
+```
+
 ## Features
 
 - Parallel test execution
