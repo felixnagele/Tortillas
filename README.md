@@ -18,6 +18,12 @@ Install command for my Tortillas (production branch) version (requires [`uv`](ht
 uv tool install "tortillas[fancy] @ git+https://github.com/felixnagele/Tortillas.git@production"
 ```
 
+Update command for my Tortillas (production branch) version (requires [`uv`](https://docs.astral.sh/uv/)):
+
+```bash
+uv tool install --reinstall "tortillas[fancy] @ git+https://github.com/felixnagele/Tortillas.git@production"
+```
+
 ## Features
 
 - Parallel test execution
