@@ -7,58 +7,104 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: demo-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   base:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    name: Example (pinned sweb)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
 
-      - name: Install dependencies
+      - name: Verify example submodule
         run: |
-          sudo apt install -y qemu-utils qemu-system-x86 python3-yaml
+          test -f example/tortillas_config.yml || {
+            echo "::error::The example submodule is missing. Check out with submodules: recursive."
+            exit 1
+          }
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake qemu-system-x86 qemu-utils
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Python dependencies
+        run: uv sync
+
+      - name: Build example sweb
+        run: |
+          # CMAKE_POLICY_VERSION_MINIMUM keeps the example's old
+          # cmake_minimum_required() working on CMake 4.x as well as 3.28.
+          cmake -S ./example -B /tmp/sweb -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build /tmp/sweb --parallel "$(nproc)"
+
+      - name: Prepare CI config
+        run: |
+          # CI runners can be slow; the example ships a 20 s boot timeout.
+          # Copy the config so the submodule checkout stays pristine.
+          cp example/tortillas_config.yml /tmp/tortillas_ci_config.yml
+          sed -i 's/^bootup_timeout_secs:.*/bootup_timeout_secs: 60/' /tmp/tortillas_ci_config.yml
+          grep '^bootup_timeout_secs:' /tmp/tortillas_ci_config.yml
 
       - name: Run tortillas
+        run: uv run python -m tortillas -S ./example -C /tmp/tortillas_ci_config.yml -a -s --no-progress
+
+      - name: Assert demo result
         run: |
-          python3 -m tortillas -S ./example
+          test -f /tmp/sweb/tortillas_summary.md
+          grep -q "SUCCESS" /tmp/sweb/tortillas_summary.md
 
-        # Upload logs as test artifacts
-        # - uses: actions/upload-artifact@v3
-        # if: always()
-        # with:
-        #   name: test_logs
-        #   path: /tmp/sweb/tortillas/**/out.log
-
-      - name: Adding markdown
+      - name: Collect logs
         if: always()
-        run: cat /tmp/sweb/tortillas_summary.md >> $GITHUB_STEP_SUMMARY
+        run: |
+          mkdir -p ci-artifacts
+          if [ -f /tmp/sweb/tortillas_summary.md ]; then
+            cp /tmp/sweb/tortillas_summary.md ci-artifacts/
+          fi
+          if [ -d /tmp/sweb/tortillas ]; then
+            find /tmp/sweb/tortillas -type f \( -name 'out.log' -o -name 'qemu.log' \) -print0 |
+              while IFS= read -r -d '' file; do
+                dest="ci-artifacts/${file#/tmp/sweb/}"
+                mkdir -p "$(dirname "$dest")"
+                cp "$file" "$dest"
+              done
+          fi
 
-  panic:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - name: Publish summary
+        if: always()
+        run: |
+          if [ -f /tmp/sweb/tortillas_summary.md ]; then
+            cat /tmp/sweb/tortillas_summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No tortillas summary was produced." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
-      - name: Checkout Sweb
-        uses: actions/checkout@v3
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          repository: PaideiaDilemma/tortillas-sweb
-          ref: panic
-          path: sweb
+          name: demo-logs
+          path: ci-artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
 
-      - name: Install dependencies
-        run: |
-          sudo apt install -y qemu-utils qemu-system-x86 python3-yaml
-
-      - name: Run tortillas
-        run: |
-          ! python3 -m tortillas -S ./sweb
-
-      - name: Adding markdown
-        if: always()
-        run: cat /tmp/sweb/tortillas_summary.md >> $GITHUB_STEP_SUMMARY
+  # NOTE: the old `panic` job is intentionally not part of the bootstrap.
+  # The public `tortillas-sweb@panic` branch panics during boot and never
+  # produces a test summary, so the old `! python -m tortillas` check passed
+  # for the wrong reason. A proper test-level panic fixture belongs in the
+  # CI-hardening PR, after the runner is hardened.

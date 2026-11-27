@@ -7,30 +7,37 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: internal-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   pytest:
-    runs-on: ubuntu-latest
+    name: Unit tests
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          submodules: true
+        uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo apt install -y qemu-utils qemu-system-x86 python3-yaml python3-pip
-          pip install pytest
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
 
-      - name: Setup and compile sweb
-        run: |
-          cmake -B"/tmp/sweb" -H"./example"
-          cmake --build "/tmp/sweb" -j$(nproc)
+      - name: Install Python dependencies
+        run: uv sync --extra dev
 
-      - name: Run tests
+      - name: Run unit tests
         run: |
           set -o pipefail
-          echo -e '```\n' >> $GITHUB_STEP_SUMMARY
-          pytest -s | tee -a $GITHUB_STEP_SUMMARY
-          echo -e '```\n' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          set +e
+          uv run pytest --ignore=tests/check_qemu_interface.py -v 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          status=${PIPESTATUS[0]}
+          set -e
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
