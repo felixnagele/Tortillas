@@ -63,3 +63,31 @@ def test_summary_marks_disabled_tests(tmp_path: Path, monkeypatch: pytest.Monkey
 
     assert "disabled_test" in summary
     assert "DISABLED" in summary
+
+
+def test_summary_includes_errors_for_failed_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr("tortillas.test_runner.SWEB_BUILD_DIR", tmp_path)
+    runner = _runner(["failed_test"])
+    runner.success = False
+    runner.test_runs[0].result.status = TestStatus.FAILED
+    runner.test_runs[0].result.errors = ["boom"]
+
+    summary = runner.get_markdown_test_summary()
+
+    assert "FAILED" in summary
+    assert "## Errors" in summary
+    assert "boom" in summary
+
+
+def test_success_requires_every_test_to_run():
+    runner = _runner(["not_run"])
+    runner.test_runs[0].result.status = TestStatus.NOT_RUN
+    assert runner.all_tests_successful() is False
+
+    runner.test_runs[0].result.status = TestStatus.SUCCESS
+    assert runner.all_tests_successful() is True
+
+    runner.test_runs[0].result.status = TestStatus.FAILED
+    assert runner.all_tests_successful() is False

@@ -3,17 +3,14 @@ name = "tortillas"
 version = "0.2.0"
 description = "A test runner for SWEB Educational OS (IAIK/sweb)"
 
-authors = [
-    { name = "Maximilian Seidler" },
-    { name = "Leo Moser" }
-]
+authors = [{ name = "Maximilian Seidler" }, { name = "Leo Moser" }]
 
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = ["pyyaml"]
 
 [project.optional-dependencies]
 fancy = ["enlighten"]
-dev = ["pytest", "ruff", "pre-commit"]
+dev = ["pytest", "pytest-timeout", "ruff", "pre-commit"]
 
 [project.scripts]
 tortillas = "tortillas.__main__:main"
@@ -25,10 +22,17 @@ tortillas = "tortillas.__main__:main"
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+include = ["tortillas*"]
+
 [tool.pytest.ini_options]
 python_files = "check_*.py"
 python_classes = ""
+markers = ["integration: requires a built sweb image and QEMU"]
+addopts = "--strict-markers"
 
 [tool.ruff]
-select = ["E", "F", "ANN001", "ANN002", "ANN001", "ANN102", "C4", "RET", "SIM", "T"]
-extend-exclude = ["salsa.py", "example"]
+extend-exclude = ["salsa.py", "sweb"]
+
+[tool.ruff.lint]
+select = ["E", "F"]

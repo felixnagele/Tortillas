@@ -185,9 +185,18 @@ class TestRunner:
             time.sleep(0.0001)  # Basically yield
         # Testing finished
 
-        self.success = not any(
+        self.success = self.all_tests_successful()
+
+    def all_tests_successful(self) -> bool:
+        """Return True only if every registered test run succeeded."""
+        return not any(
             test_run.result.status
-            in (TestStatus.FAILED, TestStatus.PANIC, TestStatus.TIMEOUT)
+            in (
+                TestStatus.FAILED,
+                TestStatus.PANIC,
+                TestStatus.TIMEOUT,
+                TestStatus.NOT_RUN,
+            )
             for test_run in self.test_runs
         )
 

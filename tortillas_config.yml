@@ -9,7 +9,7 @@
 threads: 8
 
 # Timeouts
-bootup_timeout_secs: 20
+bootup_timeout_secs: 60
 default_test_timeout_secs: 120
 
 # Syscall numbers to detect bootup and test completion
@@ -19,43 +19,42 @@ sc_tortillas_finished: 1338
 # The analyze config field contains entries that describe
 # how tortillas parses sweb logs.
 analyze:
-
-# Exit codes
+  # Exit codes
   - name: exit_codes # Unique identifier
     scope: SYSCALL # as in `debug(SYSCALL, ...)`
     pattern: 'Syscall::EXIT: called, exit_code: (\d+)' # match exit code
     mode: exit_codes # special mode that checks exit codes
     set_status: FAILED # set status FAILED, if unexpected exit codes
 
-# Userspace asserts
+  # Userspace asserts
   - name: userspace_asserts
     scope: SYSCALL
-    pattern: 'Syscall::write: (Assertion failed:.*)'
+    pattern: "Syscall::write: (Assertion failed:.*)"
     mode: add_as_error # add matches as errors
     set_status: FAILED
 
-# Locking errors
+  # Locking errors
   - name: lock_logs
     scope: LOCK
-    pattern: '(.*)'
+    pattern: "(.*)"
     mode: add_as_error
 
-# Command not understood
+  # Command not understood
   - name: command_not_understood
     scope: SYSCALL
-    pattern: 'Syscall::write: (Unknown command)'
+    pattern: "Syscall::write: (Unknown command)"
     mode: add_as_error
     set_status: FAILED
 
-# Kernel panics
+  # Kernel panics
   - name: kernel_panics
-    scope: 'KERNEL PANIC'
-    pattern: '(.*)'
+    scope: "KERNEL PANIC"
+    pattern: "(.*)"
     mode: add_as_error
     set_status: PANIC
 
-# Backtraces
+  # Backtraces
   - name: backtrace
     scope: BACKTRACE
-    pattern: '(.*)'
+    pattern: "(.*)"
     mode: add_as_error_join

@@ -1,6 +1,11 @@
 import subprocess
 from pathlib import Path
+
+import pytest
+
 from tortillas.qemu_interface import QemuInterface, InterruptWatchdog
+
+pytestmark = pytest.mark.integration
 
 IMAGE_PATH = Path("/tmp/sweb/SWEB.qcow2")
 TEST_RUN_DIR = Path("/tmp/sweb/test")

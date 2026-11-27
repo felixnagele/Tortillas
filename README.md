@@ -2,8 +2,8 @@
 
 # :flatbread: Tortillas - _A test runner for [ISEC/sweb](https://github.com/isec-tugraz/sweb)_ :flatbread:
 
-![Demo](https://github.com/PaideiaDilemma/Tortillas/actions/workflows/demo_ci.yml/badge.svg)
-![Internal tests](https://github.com/PaideiaDilemma/Tortillas/actions/workflows/internal_tests_ci.yml/badge.svg)
+![CI](https://github.com/PaideiaDilemma/Tortillas/actions/workflows/ci.yml/badge.svg)
+![Integration](https://github.com/PaideiaDilemma/Tortillas/actions/workflows/integration.yml/badge.svg)
 
 </div>
 
@@ -24,29 +24,46 @@ It takes your test cases and runs them in individual Qemu instances, while loggi
 
 ## Dependencies
 
-- python >= 3.8
+- python >= 3.10
 - pyyaml
-- [enligthen](https://github.com/Rockhopper-Technologies/enlighten) _(Optional)_ for a progress bar
+- [enlighten](https://github.com/Rockhopper-Technologies/enlighten) _(Optional)_ for a progress bar
 
 ## Demo
 
 ![](.assets/demo.gif)
 
-In this animation, Tortillas runs tests from the example. \
+In this animation, Tortillas runs tests from a real sweb. \
 Note: After it ran, [grip](https://github.com/joeyespo/grip) was used to display tortillas_summary.md
-
-### Example repo
-
-The example submodule in this repository points to [tortillas-sweb](https://github.com/PaideiaDilemma/tortillas-sweb). \
-Notable branches in this repo:
-
-- `main` contains a minimal example
-- `panic` demonstrates different test failures
 
 ### CI
 
-The [demo workflow](https://github.com/PaideiaDilemma/Tortillas/actions/workflows/demo_ci.yml?query=branch%3Amain) in this repository runs tortillas on the example repo.
-_(Github requires you to be logged in to see the workflow output)_.
+Two GitHub Actions workflows run on pushes to `main` and pull requests:
+
+- [`ci.yml`](https://github.com/PaideiaDilemma/Tortillas/actions/workflows/ci.yml?query=branch%3Amain)
+  lints, builds, and unit-tests the package.
+- [`integration.yml`](https://github.com/PaideiaDilemma/Tortillas/actions/workflows/integration.yml?query=branch%3Amain)
+  builds a real [isec-tugraz/sweb](https://github.com/isec-tugraz/sweb) and runs
+  a smoke test through Tortillas. Pull requests use the revision pinned in
+  [`ci/sweb-revision`](ci/sweb-revision); the weekly canary and manual runs use
+  upstream `main` instead.
+
+A small [compatibility patch](ci/README.md) adds the two Tortillas syscalls, the
+shell hooks, and the smoke test to sweb. GitHub-hosted runners have no KVM, so
+the integration job runs one smoke test instead of the full suite.
+
+Both workflows use `ubuntu-latest` and act-compatible action versions, so they
+can be reproduced locally with [`act`](https://github.com/nektos/act):
+
+```sh
+act -j test                                        # lint, build, and unit tests
+act -j sweb --artifact-server-path .act-artifacts  # sweb smoke test
+```
+
+`--artifact-server-path` lets act handle the log upload step and writes to the
+gitignored `.act-artifacts/` directory. The integration job needs a runner image
+with `apt`, QEMU, and the build tools.
+
+_(GitHub requires you to be logged in to see workflow output.)_
 
 ## Installation
 
@@ -75,8 +92,8 @@ git clone https://github.com/PaideiaDilemma/Tortillas
 cd Tortillas
 python -m venv venv              # Create a virtual environment
 source venv/bin/activate
-python -m pip install .\[fancy\] # Include progress bar dependency (recommended)
-python -m pip install .          # No progress bar
+python -m pip install ".[fancy]"  # Include progress bar dependency (recommended)
+python -m pip install .           # No progress bar
 ```
 
 ## Manual setup
@@ -84,6 +101,7 @@ python -m pip install .          # No progress bar
 ### Setup sweb
 
 #### 1. Grub boot menu
+
 You will need to set the grub boot timeout to 0, if you haven't already.
 
 <details><summary>Example diff</summary>
@@ -162,6 +180,7 @@ index a798ad27..88e27c0c 100644
 </details>
 
 ##### Why do I need to add syscalls to sweb?
+
 In short, because it makes detection of bootup and test completion
 easier and more reliable. For a better answer see [Interrupt/Syscall detection](#interruptsyscall-detection).
 
@@ -175,6 +194,7 @@ See [Tortillas config](#tortillas-config)
 
 Tortillas requires all tests to have a header in yaml format.
 For now, you can add this to the top of `userspace/tests/mult.c` (included in base-sweb).
+
 ```yaml
 /*
 --- # Test specification
@@ -186,6 +206,7 @@ description: |
 expect_exit_codes: [1237619379]
 */
 ```
+
 Verify the setup, by [running tortillas](#running-tortillas). \
 `mult` should run and complete with SUCCESS.
 
@@ -197,24 +218,29 @@ to your tests.
 If you want a CI pipeline, you have the following possibilities:
 
 #### 1. Set up a [gitlab runner](https://docs.gitlab.com/runner/)
+
 This requires a publicly accessible server. If you have your own runner, you can add it to your repository.
 
 You can use a workflow similar to [`gitlab-ci-example.yml`](gitlab-ci-example.yml)
 This might be the best solution, but has the caveats of _you needing a server_ and _not being able to upload artifacts_ (I think it is disabled on ISEC gitlab).
 
 #### 2. Set up a [repository mirror](https://docs.gitlab.com/ee/user/project/repository/mirror/)
+
 It is possible to mirror your gitlab sweb repo to github,
-where you can run a workflow with Github Actions, similar to [the one from tortillas-sweb](https://github.com/PaideiaDilemma/tortillas-sweb/blob/main/.github/workflows/sweb-ci.yml).
-Make sure you use a __private repo__ though.
+where you can run a workflow with Github Actions, similar to
+[`integration.yml`](.github/workflows/integration.yml) in this repository.
+Make sure you use a **private repo** though.
 
 Of course, this way, your pipeline will not be visible within gitlab.
 
 <sub><sup>If you have another way of running a CI pipeline, add it here!</sup></sub>
 
 ## Cli Usage
+
 See `tortillas --help`
 
 Note: You do not necessarily have to install tortillas. You can also run it from the Tortillas source directory, like this:
+
 ```
 python -m tortillas -S <path_to_your_sweb_repo>
 ```
@@ -233,6 +259,7 @@ tortillas -S <path_to_your_sweb_repo>
 ###### Run a test selection
 
 Tortillas supports running tests selected by tag, category or glob pattern.
+
 ```
 tortillas --tag pthread         # Run all tests tagged with 'pthread'
 tortillas --category malloc,brk # Run all tests in the 'malloc' and 'brk' categories
@@ -241,9 +268,9 @@ tortillas --glob test*          # Run all tests, that match 'userspace/tests/tes
 
 ## Tortillas config
 
-The `tortillas-config.yml` file configures tortillas to fit your sweb.
+The `tortillas_config.yml` file configures tortillas to fit your sweb.
 
-Per default it is expected to be at `<path_to_your_sweb_repo>/tortillas-config.yml`.\
+Per default it is expected to be at `<path_to_your_sweb_repo>/tortillas_config.yml`.\
 You can specify the config path with `tortillas -C <path_to_tortillas_config>`
 
 ### Configure log handling _(You might need this)_
@@ -251,6 +278,7 @@ You can specify the config path with `tortillas -C <path_to_tortillas_config>`
 You can define how logs of your sweb are handled.
 
 Best understood by looking at an example.
+
 ```yaml
 analyze:
   - name: lock_logs
@@ -259,38 +287,45 @@ analyze:
     mode: add_as_error
   ...
 ```
-__This does the following:__
+
+**This does the following:**
+
 - Every log from `debug(LOCK, ...)` that matches `(.*)` (which means everything) will be parsed into a container.
 - All logs in that container will be added to error summaries (`add_as_error`).
 
 #### Pattern
 
-The `pattern` field must contain a regex pattern, that matches the desired string in __group 1__ (usually denoted by the first set of parenthesis).
+The `pattern` field must contain a regex pattern, that matches the desired string in **group 1** (usually denoted by the first set of parenthesis).
 
 #### Why you might need this
 
 Base-sweb logs exit codes like this:
+
 ```c
 debug(SYSCALL, "Syscall::EXIT: called, exit_code: %zd\n", exit_code);
 ```
 
 Tortillas captures them with this config entry:
+
 ```yaml
 # Exit codes
-  - name: exit_codes # Unique identifier
-    scope: SYSCALL # as in `debug(SYSCALL, ...)`
-    pattern: 'Syscall::EXIT: called, exit_code: (\d+)' # match exit code
-    mode: exit_codes # special mode that checks exit codes
-    set_status: FAILED # set status FAILED, if unexpected exit codes
+- name: exit_codes # Unique identifier
+  scope: SYSCALL # as in `debug(SYSCALL, ...)`
+  pattern: 'Syscall::EXIT: called, exit_code: (\d+)' # match exit code
+  mode: exit_codes # special mode that checks exit codes
+  set_status: FAILED # set status FAILED, if unexpected exit codes
 ```
 
 If you change this debug call for example to:
+
 ```c
 debug(SYSCALL, "Bye I am out! Code: %zd\n", exit_code)
 ```
+
 The pattern for the config entry for `exit_codes` has to be changed as well:
+
 ```yaml
-    pattern: 'Bye I am out! Code: (\d+)'
+pattern: 'Bye I am out! Code: (\d+)'
 ```
 
 #### More use cases
@@ -298,16 +333,17 @@ The pattern for the config entry for `exit_codes` has to be changed as well:
 - If you are having problems with a specific component of your sweb, you can temporarily add logs from this component to
   error summaries. For example if you want to debug USERTHREAD logs, you could add the following entry to your config:
 
-    ```yaml
-      - name: userthread_logs
-        scope: 'USERTHREAD'
-        pattern: '(.*)'
-        mode: add_as_error
+  ```yaml
+  - name: userthread_logs
+    scope: "USERTHREAD"
+    pattern: "(.*)"
+    mode: add_as_error
+  ```
 
-    ```
 - `tortillas_expect` is a sweb userspace function, which allows you to assert stuff to be printed via Syscall::write at runtime. You probably won't need that, but it is something we used.
 
   For example:
+
   ```cpp
   #define NUM 100
   int main()
@@ -321,38 +357,38 @@ The pattern for the config entry for `exit_codes` has to be changed as well:
 
   <details><summary>Implementation and config entry</summary>
 
-    ### Introduce `tortillas_expect`
+  ### Introduce `tortillas_expect`
 
-    ```diff
-    diff --git a/userspace/libc/include/assert.h b/userspace/libc/include/assert.h
-    index 20e488f4..50e93c6b 100644
-    --- a/userspace/libc/include/assert.h
-    +++ b/userspace/libc/include/assert.h
-    @@ -7,3 +7,8 @@
-         printf("Assertion failed: '%s', file %s, function %s, line %d\n", #X, __FILE__, __FUNCTION__, __LINE__); \
-      exit(-1); } } while (0)
+  ```diff
+  diff --git a/userspace/libc/include/assert.h b/userspace/libc/include/assert.h
+  index 20e488f4..50e93c6b 100644
+  --- a/userspace/libc/include/assert.h
+  +++ b/userspace/libc/include/assert.h
+  @@ -7,3 +7,8 @@
+       printf("Assertion failed: '%s', file %s, function %s, line %d\n", #X, __FILE__, __FUNCTION__, __LINE__); \
+    exit(-1); } } while (0)
 
-    +/*
-    +* Wrapper around printf. Everything, that gets printed with this gets
-    +* prefixed with 'TORTILLAS EXPECT: '.
-    +**/
-    +#define tortillas_expect(FMT, ...) printf("TORTILLAS EXPECT: " FMT __VA_OPT__(,) __VA_ARGS__);
-    ```
-    ### Config entry
+  +/*
+  +* Wrapper around printf. Everything, that gets printed with this gets
+  +* prefixed with 'TORTILLAS EXPECT: '.
+  +**/
+  +#define tortillas_expect(FMT, ...) printf("TORTILLAS EXPECT: " FMT __VA_OPT__(,) __VA_ARGS__);
+  ```
 
-    ```yaml
-    # Tortillas expect
-      - name: expect_stdout
-        scope: SYSCALL
-        pattern: 'Syscall::write: (.*)'
-        mode: expect_stdout
-        set_status: FAILED
-    ```
+  ### Config entry
+
+  ```yaml
+  # Tortillas expect
+  - name: expect_stdout
+    scope: SYSCALL
+    pattern: "Syscall::write: (.*)"
+    mode: expect_stdout
+    set_status: FAILED
+  ```
 
   </details>
 
-
-### Supported fields in `tortillas-config.yml`:
+### Supported fields in `tortillas_config.yml`:
 
 - `threads: int` - Number of tests to run in parallel
 - `bootup_timeout_secs: int` - Seconds until bootup timeout
@@ -367,19 +403,21 @@ The pattern for the config entry for `exit_codes` has to be changed as well:
 - `scope: str` - Debug log identifier (e.g. SYSCALL, THREAD,... as used in `debug(SYSCALL, ...);`) or 'ALL'
 - `pattern: str` - Regex pattern to match.
 - `mode: str` - Options:
-    - `add_as_error` - Each match will be added to the error summary
-    - `add_as_error_join` - Matches will be joined and added to the error summary as a code block.
-    - `add_as_error_last` - Add the last occurrence of the pattern to the error_summary (Can be used to print the last pagefault)
-    - `retry` - Retry the test, if matched. (Only recommended for debugging shenanigans)
-    - `exit_codes` - _Special:_ entry needs to parse exit codes.
-    - `expect_stdout` - _Special:_ specifically for `tortillas_expect`, entry needs to parse stdout (`Syscall::write: (.*)` in base-sweb).
+  - `add_as_error` - Each match will be added to the error summary
+  - `add_as_error_join` - Matches will be joined and added to the error summary as a code block.
+  - `add_as_error_last` - Add the last occurrence of the pattern to the error_summary (Can be used to print the last pagefault)
+  - `retry` - Retry the test, if matched. (Only recommended for debugging shenanigans)
+  - `exit_codes` - _Special:_ entry needs to parse exit codes.
+  - `expect_stdout` - _Special:_ specifically for `tortillas_expect`, entry needs to parse stdout (`Syscall::write: (.*)` in base-sweb).
 
 ###### Optional
+
 - `set_status: str` - If the entry matches something in the logs, apply this status to the test. Options:
-    - `PANIC`
-    - `FAILED`
+  - `PANIC`
+  - `FAILED`
 
 ## Test specifications
+
 ```yaml
 /*
 ---
@@ -416,10 +454,11 @@ For example:
 - `disabled: bool` - disable the test by setting this to true
 
 ### Header format
+
 Tortillas tries to parse a test header under the following conditions:
 
 - first line contains `/*`
-- first or seconds line contains `---`
+- first or second line contains `---`
 
 If those conditions are not met, tortillas will skip the file.
 If they are met, lines until `*/` will be parsed as yaml and it will
@@ -434,6 +473,7 @@ Instead it uses qemu interrupt logging to detect certain interrupts.
 This is why you have to add syscalls to your sweb.
 
 Using this approach has the following advantages:
+
 - Detection does not rely on the `KprintfFlushingThread`
 - Reliable detection of kernel panics (no more interrupts are coming)
 - Also works, when there are multiple processes (due to `fork`)
@@ -447,7 +487,7 @@ This was the original solution. In fact, setting `sc_tortillas_bootup: 4` and `s
 1. Bootup sweb _(wait until the tortillas bootup syscall)_
 2. Create a qemu snapshot and do `savevm`
 3. Run all tests, by starting from the snapshot
-5. Wait for test completion _(wait until the tortillas finished syscall)_
+4. Wait for test completion _(wait until the tortillas finished syscall)_
 
 ## Troubleshooting
 
@@ -459,7 +499,7 @@ See [Configure log handling _(You might need this)_](#configure-log-handling-you
 
 #### Multiple processes _(Known issue, pls fix)_
 
-Once your sweb involves `fork`, an obvious problem arises: __The shell needs to block until the last process finished__, otherwise
+Once your sweb involves `fork`, an obvious problem arises: **The shell needs to block until the last process finished**, otherwise
 tortillas will kill the test too early.
 
 When you switch your shell to `fork+exec` and you do not have `waitpid` to block, detection of test completion will break.
@@ -470,10 +510,25 @@ When you switch your shell to `fork+exec` and you do not have `waitpid` to block
   test completion that way.
 - Add a test specification option to wait additional time after the shell signaled test completion.
 
+## Development
+
+```sh
+uv sync --extra dev
+uv run pre-commit install
+uv run pytest -m "not integration"   # unit tests, no QEMU required
+uv run pytest -m integration         # needs a built sweb in TORTILLAS_BUILD_DIR
+act -j test                          # run the fast CI job locally
+```
+
+`TORTILLAS_BUILD_DIR` defaults to `/tmp/sweb`. The
+[integration workflow](.github/workflows/integration.yml) shows how a real sweb
+is built and tested in CI.
+
 ## Contribute
 
 If you encounter any bugs or have ideas for useful features, please consider contributing.
 This project will only survive if students contribute and maintain it.
 
 ## License
+
 See [LICENSE](LICENSE) _(GPLv3)_

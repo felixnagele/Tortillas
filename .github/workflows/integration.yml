@@ -1,0 +1,108 @@
+name: Integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly canary against upstream sweb.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TORTILLAS_BUILD_DIR: ${{ github.workspace }}/sweb-build
+
+jobs:
+  sweb:
+    name: sweb smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Tortillas
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Select sweb revision
+        id: sweb
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = schedule ] ||
+             [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=$(cat ci/sweb-revision)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: uv sync --locked
+
+      - name: Checkout sweb
+        env:
+          SWEB_REF: ${{ steps.sweb.outputs.ref }}
+        run: |
+          rm -rf sweb
+          git init --quiet sweb
+          git -C sweb remote add origin https://github.com/isec-tugraz/sweb.git
+          git -C sweb fetch --quiet --depth 1 origin "$SWEB_REF"
+          git -C sweb checkout --quiet --detach FETCH_HEAD
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake qemu-system-x86 qemu-utils
+
+      - name: Apply Tortillas patch
+        run: ci/apply-sweb-patch.sh ci/sweb-tortillas.patch sweb
+
+      - name: Build sweb
+        run: |
+          cmake -S sweb -B "$TORTILLAS_BUILD_DIR"
+          cmake --build "$TORTILLAS_BUILD_DIR" --parallel
+
+      - name: Run smoke test
+        run: |
+          uv run tortillas -S ./sweb -C tortillas_config.yml \
+            -a -s --glob tortillas_smoke --no-progress
+
+      - name: Assert result
+        run: |
+          summary="$TORTILLAS_BUILD_DIR/tortillas_summary.md"
+          test -s "$summary"
+          grep -q "tortillas_smoke.*SUCCESS" "$summary"
+
+      - name: Publish summary
+        if: always()
+        run: |
+          summary="$TORTILLAS_BUILD_DIR/tortillas_summary.md"
+          if [ -f "$summary" ]; then
+            cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No tortillas summary was produced." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sweb-logs
+          path: |
+            ${{ env.TORTILLAS_BUILD_DIR }}/tortillas_summary.md
+            ${{ env.TORTILLAS_BUILD_DIR }}/tortillas/**/out.log
+            ${{ env.TORTILLAS_BUILD_DIR }}/tortillas/**/int.log
+          if-no-files-found: ignore
+          retention-days: 7

@@ -56,7 +56,7 @@ def main():
     parser.add_argument(
         "--arch",
         type=str,
-        help="Set sweb architecture target. " "Supported: x86_64, x86_32",
+        help="Set sweb architecture target. Supported: x86_64, x86_32",
         default="x86_64",
     )
 
@@ -98,8 +98,7 @@ def main():
         "-r",
         "--repeat",
         type=int,
-        help="Run the specified tests multiple times. "
-        "-r 2 will run all tests 2 times",
+        help="Run the specified tests multiple times. -r 2 will run all tests 2 times",
         default=1,
     )
 

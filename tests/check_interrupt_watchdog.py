@@ -43,8 +43,7 @@ def test_silent_interrupt_log_times_out(tmp_path: Path) -> None:
 def test_matching_interrupt_is_found(tmp_path: Path) -> None:
     watchdog = _watchdog(tmp_path)
     watchdog.interrupt_logfile.write_text(
-        "v=80\n"
-        "RAX=0000000000000539 RBX=0000000000000000\n"
+        "v=80\nRAX=0000000000000539 RBX=0000000000000000\n"
     )
 
     status = watchdog.wait_until(int_num=80, int_regs={"RAX": 0x539}, timeout=0.2)

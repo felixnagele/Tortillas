@@ -1,11 +1,12 @@
 """This module exclusively contains constants."""
 
 import logging
+import os
 from pathlib import Path
 
 LOG_LEVEL = logging.INFO
 
-SWEB_BUILD_DIR = Path("/tmp/sweb")
+SWEB_BUILD_DIR = Path(os.environ.get("TORTILLAS_BUILD_DIR", "/tmp/sweb"))
 TEST_RUN_DIR = Path(f"{SWEB_BUILD_DIR}/tortillas")
 
 TEST_FOLDER_PATH = "userspace/tests"

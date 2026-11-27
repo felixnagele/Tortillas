@@ -1,0 +1,71 @@
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index dd99d19..a3c6aad 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -17,3 +17,5 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++#define sc_tortillas_bootup 1337
++#define sc_tortillas_finished 1338
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 964cd5b..e565a73 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -49,6 +49,10 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pseudols:
+       pseudols((const char*) arg1, (char*) arg2, arg3);
+       break;
++    case sc_tortillas_bootup:
++      break;
++    case sc_tortillas_finished:
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+diff --git a/userspace/tests/shell.c b/userspace/tests/shell.c
+index 0e9e5ea..c34358d 100644
+--- a/userspace/tests/shell.c
++++ b/userspace/tests/shell.c
+@@ -351,11 +351,13 @@ int main(int argc, char* argv[]) {
+   printAvailableCommands();
+   __syscall(sc_pseudols, (size_t)SHELL_EXECUTABLE_PREFIX,
+             (size_t)dir_content, sizeof(dir_content), 0, 0);
++  __syscall(sc_tortillas_bootup, 0, 0, 0, 0, 0);
+   while(running) {
+     readCommand();
+     if (buffer[0]) {
+       handleCommand();
+     }
++    __syscall(sc_tortillas_finished, 0, 0, 0, 0, 0);
+   }
+   return exit_code;
+ }
+diff --git a/userspace/tests/tortillas_smoke.c b/userspace/tests/tortillas_smoke.c
+new file mode 100644
+index 0000000..4accc02
+--- /dev/null
++++ b/userspace/tests/tortillas_smoke.c
+@@ -0,0 +1,10 @@
++/*
++---
++category: smoke
++description: "Minimal test used by the Tortillas CI canary."
++*/
++
++int main()
++{
++  return 0;
++}
+diff --git a/utils/images/menu.lst b/utils/images/menu.lst
+index cf7fd93..25e6f49 100644
+--- a/utils/images/menu.lst
++++ b/utils/images/menu.lst
+@@ -1,5 +1,7 @@
+ 
+ default 0
++timeout 0
++hiddenmenu
+ 
+ title = Sweb
+ root (hd0,0)

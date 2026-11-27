@@ -127,3 +127,10 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# CI sweb checkout and build
+/sweb/
+/sweb-build/
+
+# act artifact server
+/.act-artifacts/
