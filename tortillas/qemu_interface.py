@@ -243,10 +243,7 @@ class InterruptWatchdog:
         """
         max_iterations = int(timeout / self.sleep_time)
 
-        iterations_file_unchanged = 0
-
         for _ in range(max_iterations):
-            previous_position = self.file_pos
             time.sleep(self.sleep_time)
 
             with self.interrupt_logfile.open("r") as logfile:
@@ -257,15 +254,14 @@ class InterruptWatchdog:
                     return self.Status.OK
                 self.file_pos = logfile.tell()
 
-            if self.file_pos == previous_position:
-                if iterations_file_unchanged > 10:
-                    self.logger.error("Interrupts stopped... Panic?")
-                    return self.Status.STOPPED
-
-                iterations_file_unchanged += 1
-            else:
-                iterations_file_unchanged = 0
-
+        # NOTE: This used to return STOPPED after a fixed number of polls
+        # without new interrupts, as a heuristic for a kernel panic. That
+        # heuristic is not reliable: qemu buffers the interrupt log, the
+        # kernel may legitimately keep interrupts disabled for a while, and
+        # a loaded/slow host can easily exceed the threshold. It produced
+        # false "Panic?" results on CI while the guest was still booting.
+        # Callers already handle TIMEOUT (boot failure / test timeout), so
+        # rely on the explicit timeout instead of guessing from log silence.
         self.logger.error(f"Timeout! {int_num}: {int_regs}")
 
         return self.Status.TIMEOUT
